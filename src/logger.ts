@@ -12,7 +12,7 @@ import type { Logger } from "./upstream/types.js";
 
 const LOG_DIR = join(
   process.env.LOCALAPPDATA ?? join(process.env.USERPROFILE ?? ".", ".local"),
-  "windows-computer-use-mcp",
+  "argus-automation",
   "logs",
 );
 

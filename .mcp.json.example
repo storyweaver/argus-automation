@@ -1,8 +1,8 @@
 {
   "mcpServers": {
-    "windows-computer-use": {
+    "argus": {
       "command": "node",
-      "args": ["D:/claude-d/gui-automation/windows-computer-use-mcp/dist/index.js"]
+      "args": ["C:/path/to/argus-automation/dist/index.js"]
     }
   }
 }

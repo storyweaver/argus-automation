@@ -42,7 +42,7 @@ export interface WindowsHostAdapterOpts {
 export function createWindowsHostAdapter(
   opts: WindowsHostAdapterOpts = {},
 ): ComputerUseHostAdapter {
-  const serverName = opts.serverName ?? "windows-computer-use";
+  const serverName = opts.serverName ?? "argus";
   const logger: Logger = opts.logger ?? createFileLogger(serverName);
 
   const subGates: CuSubGates = {

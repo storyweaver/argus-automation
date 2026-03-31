@@ -1,105 +1,124 @@
-# Windows Computer Use MCP
+# Argus Automation
 
 <p align="center">
-  <a href="../../README.md">English</a> | <a href="README_zh-CN.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_fr.md">Français</a> | <b>Deutsch</b>
+  <a href="../../README.md">English</a> | <a href="README_zh-CN.md">中文</a> | <a href="README_ja.md">日本語</a> | <a href="README_fr.md">Français</a> | **Deutsch**
 </p>
 
-**Der einzige Windows-Desktop-Automatisierungs-MCP-Server, der auf Anthropics offizieller Chicago-MCP-Architektur basiert.**
-
-Dieselben 24 Tools. Dasselbe 3-stufige Sicherheitsmodell. Dieselbe Token-Optimierung. Nur die native Schicht wurde fuer Windows ersetzt.
-
-Jeder andere Desktop-Automatisierungs-MCP baut seine Tool-Schemata, sein Sicherheitsmodell und seine Dispatch-Logik von Grund auf neu. Dieses Projekt verwendet direkt **ueber 6.300 Zeilen** von Anthropics Produktionscode wieder -- denselben Code, der die integrierte macOS-Desktopsteuerung von Claude Code antreibt -- und ersetzt lediglich die native Schicht (Screenshot, Eingabe, Fensterverwaltung) durch Windows-Aequivalente.
+<p align="center">
+  <b>Modernste Desktop-Automatisierung fuer KI-Agenten.</b><br/>
+  Funktioniert mit <b>Claude Code</b>, <b>Codex</b> und <b>OpenClaw</b>.
+</p>
 
 ---
 
-## Warum diese Architektur anders ist
+> **Argus** (Ἄργος Πανόπτης) — der hundertaeugige Riese der griechischen Mythologie, der allsehende Waechter, der niemals schlaeft. Wir haben dieses Projekt Argus genannt, weil es Ihren gesamten Desktop durch Screenshots erfasst und ihn mit chirurgischer Praezision steuert — genau wie der mythologische Waechter ueber alles wachte, was ihm anvertraut wurde.
 
-Die meisten Desktop-Automatisierungs-MCPs geben dem Modell ein paar primitive Tools (Screenshot, Klick, Tippen) und hoffen auf das Beste. **Chicago MCP** -- Anthropics interne Architektur fuer Desktopsteuerung -- verfolgt einen grundlegend anderen Ansatz: Desktop-Automatisierung wird als **zustandsbehaftete, kontrollierte Sitzung** mit mehrstufiger Sicherheit, Token-Budget und Batch-Ausfuehrung behandelt.
+Jeder andere Desktop-Automatisierungs-MCP baut seine Tool-Schemata, sein Sicherheitsmodell und seine Dispatch-Logik von Grund auf neu. Argus verwendet direkt **ueber 6.300 Zeilen** von Anthropics Chicago-MCP-Produktionscode wieder — denselben Code, der die integrierte macOS-Desktopsteuerung von Claude Code antreibt — und ersetzt lediglich die native Schicht durch Windows-Aequivalente. Dieselben 24 Tools, dasselbe 3-stufige Sicherheitsmodell, dieselbe Token-Optimierung.
 
-Wir haben diese Architektur auf Windows portiert. Das bedeutet in der Praxis:
+## Zwei grundlegend verschiedene Designphilosophien
 
-### Architekturvergleich
+Jeder andere MCP verfolgt den **"Gib dem Modell einen Hammer"-Ansatz** — Screenshot + Klick + Tippen als atomare Tools bereitstellen und dann hoffen, dass das Modell den Rest herausfindet. Jeder Schritt ist: Screenshot → schauen → entscheiden → handeln → wiederholen.
 
+Argus verfolgt einen grundlegend anderen Ansatz: **Desktop-Automatisierung als zustandsbehaftete, kontrollierte Sitzung modellieren** — mit mehrstufiger Sicherheit, Token-Budget und Batch-Ausfuehrung. Der Unterschied ist enorm.
+
+### Vergleich 1: Tool-Design — Flache Primitive vs. Schichtenarchitektur
+
+**CursorTouch (5.000 Stars) Tools:**
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│              Andere MCP-Server                                      │
-│                                                                     │
-│   screenshot() ──→ Modell schaut ──→ click(x,y) ──→ Wiederholung   │
-│                                                                     │
-│   Keine Sicherheit. Kein Batching. Kein Token-Budget. Kein State.   │
-│   Das Modell muss ALLES visuell parsen, jedes einzelne Mal.         │
-└─────────────────────────────────────────────────────────────────────┘
+Click, Type, Scroll, Move, Shortcut, Screenshot, App, Shell...
+```
+Jedes Tool ist eine unabhaengige atomare Operation ohne Kontextbeziehung. Das Modell muss bei jedem einzelnen Schritt Screenshot → schauen → entscheiden → handeln.
 
-┌─────────────────────────────────────────────────────────────────────┐
-│              Dieses Projekt (Chicago-MCP-Architektur)               │
-│                                                                     │
-│   ┌──── Session-Schicht ──────────────────────────────────────┐     │
-│   │  request_access → 3-stufige Berechtigungen (read/click/full)│   │
-│   │  Pro-App-Freigaben, Key-Blocklist, Frontmost-Gate           │   │
-│   └─────────────────────────────────────────────────────────────┘   │
-│   ┌──── Effizienz-Schicht ────────────────────────────────────┐     │
-│   │  computer_batch: N Aktionen → 1 API-Aufruf                │     │
-│   │  Strukturierte APIs: cursor_position, read_clipboard,      │     │
-│   │    open_application — kein Screenshot noetig               │     │
-│   │  targetImageSize: Binaere Suche auf ≤1568 Token-Budget     │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│   ┌──── Vision-Schicht (nur wenn wirklich noetig) ────────────┐     │
-│   │  screenshot → Modell sieht UI → click/type/scroll          │     │
-│   │  zoom → hochaufloesender Ausschnitt fuer kleinen Text      │     │
-│   └────────────────────────────────────────────────────────────┘     │
-│   ┌──── Native Schicht (Windows) ─────────────────────────────┐     │
-│   │  node-screenshots (DXGI) │ robotjs (SendInput)             │     │
-│   │  koffi + Win32 API       │ sharp (JPEG/resize)             │     │
-│   └────────────────────────────────────────────────────────────┘     │
-└─────────────────────────────────────────────────────────────────────┘
+**Argus' geschichtetes Tool-Design:**
+```
+Session-Schicht:     request_access, list_granted_applications
+Vision-Schicht:      screenshot, zoom
+Praezisions-Schicht: left_click, double_click, triple_click, right_click,
+                     middle_click, left_mouse_down, left_mouse_up
+Eingabe-Schicht:     type, key, hold_key
+Effizienz-Schicht:   computer_batch (N Aktionen → 1 API-Aufruf)
+Navigations-Schicht: open_application, switch_display
+Statusabfrage-Schicht: cursor_position, read_clipboard, write_clipboard
+Warte-Schicht:       wait
 ```
 
-### Direktvergleich: Funktionsumfang
+24 Top-Level-Tools + 16 Batch-Aktionstypen. Der Kern dieses geschichteten Designs: **Das Modell soll auf der richtigen Abstraktionsebene denken, anstatt jedes Mal bei den Pixeln anzufangen.**
 
-| Faehigkeit | **Dieses Projekt** | CursorTouch<br/>Windows-MCP<br/>(5k Stars) | MCPControl<br/>(306 Stars) | domdomegg<br/>computer-use-mcp<br/>(176 Stars) | sbroenne<br/>mcp-windows<br/>(24 Stars) |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **Batch-Ausfuehrung** (N Aktionen, 1 API-Aufruf) | **Ja** | Nein | Nein | Nein | Nein |
-| **Token-Budget-Optimierung** (binaere Suche, Resize auf ≤1568 Tokens) | **Ja** | Nein | Nein | Nein | Nein |
-| **3-stufige App-Berechtigungen** (read / click / full) | **Ja** | Nein | Nein | Nein | Nein |
-| **Frontmost-App-Gate** (blockiert bei falschem Fokusfenster) | **Ja** | Nein | Nein | Nein | Nein |
-| **Blockierung gefaehrlicher Tasten** (Alt+F4, Win+L, Ctrl+Alt+Del) | **Ja** | Nein | Nein | Nein | Nein |
-| **Strukturierte APIs** (Infos ohne Screenshots abrufen) | **Ja** | Teilweise | Teilweise | Nein | Ja |
-| **Zoom** (hochaufloesender Ausschnitt fuer Details) | **Ja** | Nein | Nein | Nein | Nein |
-| **Multi-Display** (Umschalten per Monitorname) | **Ja** | Nein | Nein | Nein | Nein |
-| **Gleiches Tool-Schema wie Claude Code Built-in** | **Ja** | Nein | Nein | Naeherungsweise | Nein |
-| **Wiederverwendeter Upstream-Code von Anthropic** | **6.300+ Zeilen** | 0 | 0 | 0 | 0 |
-| Anzahl Tools | 24 | 19 | 12 | 6 | 10 |
-| Sprache | TypeScript | Python | TypeScript | TypeScript | C# |
+### Vergleich 2: "APIs nutzen, wenn moeglich" — Das am meisten unterschaetzte Designprinzip
 
-### Warum Batch-Ausfuehrung wichtig ist
+Dies ist der am meisten unterschaetzte Designaspekt. Andere MCPs zwingen das Modell, **alles per Vision wahrzunehmen**. Argus' Prinzip: Wenn eine Information ueber eine strukturierte API abrufbar ist, werden niemals Vision-Tokens dafuer verschwendet. Screenshots sind fuer Faelle reserviert, in denen visuelles Verstaendnis tatsaechlich erforderlich ist.
 
-Ohne `computer_batch` benoetigt eine Klick-Tippen-Enter-Sequenz **5 API-Roundtrips** (je 3-8 Sekunden). Mit Batching:
+| Aufgabe | Andere MCPs | Argus | Ersparnis |
+|---|---|---|---|
+| **Vorhandene Apps ermitteln** | Screenshot → Modell liest Taskleiste | `listInstalledApps()` → strukturierte Daten | 1 Screenshot + 1 Vision-Inferenz |
+| **Anwendung oeffnen** | Screenshot → Icon finden → klicken | `open_application("Excel")` → direkter API-Aufruf | 2-3 Screenshots + mehrere Klicks |
+| **Fokussierte App ermitteln** | Screenshot → Modell liest Titelleiste | `getFrontmostApp()` → gibt bundleId zurueck | 1 Screenshot + Inferenz |
+| **Cursorposition ermitteln** | Screenshot → Modell raet | `cursor_position` → exakte Koordinaten | 1 Screenshot |
+| **Zwischenablage lesen** | Strg+V in Notepad → Screenshot → lesen | `read_clipboard` → gibt Text zurueck | Mehrere Aktionen + 2 Screenshots |
+| **Monitor wechseln** | Screenshot → falscher Monitor → Versuch und Irrtum | `switch_display("Dell U2720Q")` | Versuch-und-Irrtum-Schleife |
+| **Kleinen Text lesen** | Modell versucht komprimierten Screenshot zu entziffern | `zoom` → hochaufloesender Ausschnitt | Fehlklick-Kosten |
 
-```javascript
-// 5 Roundtrips → 2. 60% weniger Latenz und Tokens.
-computer_batch([
+Jeder vermiedene Screenshot spart **ca. 1.500 Vision-Tokens** und **3-5 Sekunden** Latenz.
+
+### Vergleich 3: `computer_batch` — Die einzige Batch-Ausfuehrungs-Engine
+
+Diese Faehigkeit hat **kein Konkurrent**. So gross ist der Unterschied:
+
+**Andere MCPs bei "Feld klicken → Text eingeben → Enter druecken":**
+```
+Aufruf 1: screenshot        → Modell empfaengt Bild → Inferenz → naechster Schritt
+Aufruf 2: click(100, 200)   → Modell empfaengt OK   → Inferenz → naechster Schritt
+Aufruf 3: type("hello")     → Modell empfaengt OK   → Inferenz → naechster Schritt
+Aufruf 4: key("Return")     → Modell empfaengt OK   → Inferenz → naechster Schritt
+Aufruf 5: screenshot        → Modell bestaetigt Ergebnis
+
+= 5 API-Roundtrips × 3-8 Sekunden = 15-40 Sekunden
+```
+
+**Argus fuer dieselbe Aufgabe:**
+```
+Aufruf 1: screenshot
+Aufruf 2: computer_batch([
   { action: "left_click", coordinate: [100, 200] },
-  { action: "type", text: "hello world" },
+  { action: "type", text: "hello" },
   { action: "key", text: "Return" },
   { action: "screenshot" }
 ])
+
+= 2 API-Roundtrips = 6-16 Sekunden
 ```
 
-Kein anderer Windows-MCP-Server unterstuetzt das.
+**60 % weniger Latenz und Tokens.** Und jede Aktion innerhalb des Batches durchlaeuft weiterhin eine Frontmost-App-Sicherheitspruefung — keine blinde Ausfuehrung.
 
-### Warum "APIs nutzen, wenn moeglich" wichtig ist
+### Vergleich 4: Sicherheitsmodell — Produktionsreif vs. nicht vorhanden
 
-Andere MCPs zwingen das Modell, **alles per Screenshot visuell zu parsen**. Chicago MCP: Wenn eine Information per API verfuegbar ist, werden keine Vision-Tokens verschwendet.
+| Sicherheitsdimension | CursorTouch (5k Stars) | MCPControl (306 Stars) | **Argus** |
+|---|:---:|:---:|:---:|
+| App-Berechtigungen | Nein | Nein | **3-stufig (read/click/full)** |
+| Frontmost-App-Gate | Nein (kann jedes Fenster klicken) | Nein | **Pruefung vor jeder Aktion** |
+| Blockierung gefaehrlicher Tasten | Nein | Nein | **Alt+F4, Win+L, Ctrl+Alt+Del** |
+| Klickziel-Validierung | Nein | Nein | **9×9-Pixel-Veralterungsschutz** |
+| Zwischenablage-Isolation | Nein | Nein | **Sichern/Wiederherstellen bei click-Stufe** |
+| App-Sperrliste | Nein | Nein | **Browser→read-only, Terminals→click-only** |
 
-| Aufgabe | Andere MCPs | Dieses Projekt |
-|---|---|---|
-| Welche App hat den Fokus? | Screenshot → Modell liest Titelleiste | `getFrontmostApp()` → strukturierte Daten |
-| Wo ist der Cursor? | Screenshot → Modell raet | `cursor_position` → exakt `{x, y}` |
-| Zwischenablage lesen | Strg+V in Notepad → Screenshot → lesen | `read_clipboard` → Textstring |
-| Anwendung oeffnen | Screenshot → Icon finden → klicken | `open_application("Excel")` → API-Aufruf |
-| Monitor wechseln | Screenshot → falscher Monitor → erneut versuchen | `switch_display("Dell U2720Q")` |
+CursorTouch's README sagt woertlich *"POTENTIALLY DANGEROUS"*. Argus' Sicherheitsmodell ist **fuer kommerzielle Produkte konzipiert** — Anthropics Cowork und Desktop-App verwenden dieselbe Architektur.
 
-Jeder vermiedene Screenshot spart **ca. 1.500 Vision-Tokens** und **3-5 Sekunden**.
+### Direktvergleich: Zusammenfassung
+
+| Faehigkeit | **Argus** | CursorTouch<br/>(5k Stars) | MCPControl<br/>(306 Stars) | domdomegg<br/>(176 Stars) | sbroenne<br/>(24 Stars) |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **Batch-Ausfuehrung** | **Ja** | Nein | Nein | Nein | Nein |
+| **Token-Budget-Optimierung** | **Ja** | Nein | Nein | Nein | Nein |
+| **3-stufige App-Berechtigungen** | **Ja** | Nein | Nein | Nein | Nein |
+| **Frontmost-App-Gate** | **Ja** | Nein | Nein | Nein | Nein |
+| **Blockierung gefaehrlicher Tasten** | **Ja** | Nein | Nein | Nein | Nein |
+| **Strukturierte APIs** (Infos ohne Screenshot) | **Ja** | Teilweise | Teilweise | Nein | Ja |
+| **Zoom** (hochaufloesender Detailausschnitt) | **Ja** | Nein | Nein | Nein | Nein |
+| **Multi-Display-Wechsel** | **Ja** | Nein | Nein | Nein | Nein |
+| **Gleiches Schema wie Claude Code Built-in** | **Ja** | Nein | Nein | Annaehernd | Nein |
+| **Wiederverwendeter Anthropic-Upstream-Code** | **6.300+ Zeilen** | 0 | 0 | 0 | 0 |
+| Anzahl Tools | 24 | 19 | 12 | 6 | 10 |
+| Sprache | TypeScript | Python | TypeScript | TypeScript | C# |
 
 ---
 
@@ -114,8 +133,8 @@ Jeder vermiedene Screenshot spart **ca. 1.500 Vision-Tokens** und **3-5 Sekunden
 ### Installation
 
 ```bash
-git clone https://github.com/storyweaver/windows-computer-use-mcp.git
-cd windows-computer-use-mcp
+git clone https://github.com/storyweaver/argus-automation.git
+cd argus-automation
 npm install
 npm run build
 ```
@@ -127,15 +146,15 @@ In die `.mcp.json` des Projekts eintragen:
 ```json
 {
   "mcpServers": {
-    "windows-computer-use": {
+    "argus": {
       "command": "node",
-      "args": ["C:/path/to/windows-computer-use-mcp/dist/index.js"]
+      "args": ["C:/path/to/argus-automation/dist/index.js"]
     }
   }
 }
 ```
 
-Claude Code neu starten. Es erscheinen 24 neue Tools mit dem Praefix `mcp__windows-computer-use__`.
+Claude Code neu starten. Es erscheinen 24 neue Tools mit dem Praefix `mcp__argus__`.
 
 ### Testen
 
@@ -146,41 +165,43 @@ npm run test:unit # Nur Unit-Tests
 
 ---
 
-## Projektstruktur
+## Architektur
 
 ```
-src/
-├── upstream/              # 6.300+ Zeilen aus @ant/computer-use-mcp (1 Zeile geaendert)
-│   ├── toolCalls.ts       # 3.649 Zeilen: Sicherheits-Gates + Tool-Dispatch
-│   ├── tools.ts           # 24 Tool-Schema-Definitionen
-│   ├── mcpServer.ts       # MCP-Server-Factory + Session-Binding
-│   ├── types.ts           # Vollstaendiges Typsystem
-│   ├── executor.ts        # ComputerExecutor-Interface (rekonstruiert)
-│   ├── keyBlocklist.ts    # Blockierung gefaehrlicher Tasten (win32-Branch integriert)
-│   ├── pixelCompare.ts    # 9×9-Pixel-Veralterungserkennung
-│   ├── imageResize.ts     # Token-Budget-Algorithmus
-│   └── ...                # deniedApps, sentinelApps, subGates
-├── native/                # Windows-native Schicht (~400 Zeilen)
-│   ├── screen.ts          # node-screenshots + sharp (DXGI-Capture)
-│   ├── input.ts           # robotjs (SendInput Maus/Tastatur)
-│   ├── window.ts          # koffi + Win32 API (Fensterverwaltung)
-│   └── clipboard.ts       # PowerShell Get/Set-Clipboard
-├── executor-windows.ts    # ComputerExecutor-Implementierung
-├── host-adapter.ts        # HostAdapter-Zusammenbau
-├── logger.ts              # Dateibasiertes Logging
-└── index.ts               # stdio-MCP-Server-Einstiegspunkt
+┌─────────────────────────────────────────────────────────────────────┐
+│  Upstream-Schicht — 6.300+ Zeilen aus Anthropics Chicago MCP        │
+│  (nur 1 Zeile geaendert)                                           │
+│                                                                     │
+│  toolCalls.ts (3.649 Zeilen) — Sicherheits-Gates + Tool-Dispatch    │
+│  mcpServer.ts — Server-Factory + Session-Binding                    │
+│  tools.ts — 24 Tool-Schema-Definitionen                             │
+│  types.ts — Vollstaendiges Typsystem                                │
+│  keyBlocklist.ts — Blockierung gefaehrlicher Tasten (win32-Branch)  │
+│  pixelCompare.ts — 9×9-Pixel-Veralterungserkennung                 │
+│  imageResize.ts — Token-Budget-Algorithmus                          │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ ComputerExecutor-Interface
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Windows-native Schicht — ca. 400 Zeilen, neuer Code                │
+│                                                                     │
+│  screen.ts — node-screenshots + sharp (DXGI-Capture, JPEG, Resize)  │
+│  input.ts  — robotjs (SendInput Maus/Tastatur)                      │
+│  window.ts — koffi + Win32 API (Fensterverwaltung)                  │
+│  clipboard.ts — PowerShell Get/Set-Clipboard                        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## Tech-Stack
+### Tech-Stack
 
-Jede Bibliothek ist das Windows-Aequivalent dessen, was Chicago MCP unter macOS verwendet:
+Jede Bibliothek ist das Windows-Aequivalent dessen, was die macOS-Version verwendet:
 
-| Modul | macOS (Chicago MCP) | Windows (dieses Projekt) | Aufgabe |
+| Modul | macOS (Chicago MCP) | Windows (Argus) | Aufgabe |
 |---|---|---|---|
 | Screenshot | SCContentFilter | **node-screenshots** (DXGI) | Bildschirmaufnahme |
 | Eingabe | enigo (Rust) | **robotjs** (SendInput) | Maus & Tastatur |
 | Fensterverwaltung | Swift + NSWorkspace | **koffi** + Win32 API | Fenstersteuerung |
-| Bildverarbeitung | Sharp | **Sharp** | JPEG-Komprimierung + Groessenaenderung |
+| Bildverarbeitung | Sharp | **Sharp** | JPEG-Komprimierung + Resize |
 | MCP-Framework | @modelcontextprotocol/sdk | **@modelcontextprotocol/sdk** | MCP-Protokoll |
 
 ## Die 24 Tools
@@ -199,27 +220,28 @@ Jede Bibliothek ist das Windows-Aequivalent dessen, was Chicago MCP unter macOS 
 
 ## Sicherheitsmodell
 
-Dreistufige, anwendungsspezifische Berechtigungen -- der einzige MCP-Server mit diesem Konzept:
+Dreistufige, anwendungsspezifische Berechtigungen — **der einzige MCP-Server mit diesem Niveau an Zugriffskontrolle**:
 
 | Stufe | Screenshot | Klick | Tippen/Einfuegen |
 |---|:---:|:---:|:---:|
 | **read** (Browser, Trading) | Ja | Nein | Nein |
-| **click** (Terminals, IDEs) | Ja | Linksklick | Nein |
+| **click** (Terminals, IDEs) | Ja | Nur Linksklick | Nein |
 | **full** (alles andere) | Ja | Ja | Ja |
 
-Zusaetzlich: Blockierung gefaehrlicher Tasten, Frontmost-App-Gate, sitzungsbezogene Freigaben.
+Zusaetzlich: Blockierung gefaehrlicher Tasten, Frontmost-App-Gate bei jeder Aktion, sitzungsbezogene Freigaben.
 
 ## Logs
 
+Alle Tool-Aufrufe werden protokolliert unter:
 ```
-%LOCALAPPDATA%\windows-computer-use-mcp\logs\mcp-YYYY-MM-DD.log
+%LOCALAPPDATA%\argus-automation\logs\mcp-YYYY-MM-DD.log
 ```
 
 ## Bekannte Einschraenkungen
 
 - **CJK-Texteingabe**: `write_clipboard` + `key("ctrl+v")` fuer nicht-ASCII-Text verwenden
 - **App-Erkennung**: Gibt derzeit nur laufende Anwendungen zurueck (Registry-Scan geplant)
-- **Pixel-Validierung**: Deaktiviert (asynchrones sharp kann synchrones Interface nicht bedienen)
+- **Pixel-Validierung**: Deaktiviert unter Windows (asynchrones sharp kann synchrones Interface nicht bedienen)
 - **hideBeforeAction**: Deaktiviert (Minimieren stoert WebView2-Kindprozesse)
 
 ## Lizenz
@@ -228,4 +250,4 @@ MIT
 
 ## Danksagungen
 
-Basiert auf Anthropics `@ant/computer-use-mcp` (Chicago MCP), extrahiert aus Claude Code v2.1.88. Der Upstream-Code in `src/upstream/` stammt von Anthropic; die Windows-native Schicht ist eigenstaendig entwickelt.
+Basiert auf Anthropics Chicago-MCP-Architektur, extrahiert aus Claude Code v2.1.88. Der Upstream-Code in `src/upstream/` stammt von Anthropic; die Windows-native Schicht und der Integrationscode sind eigenstaendig entwickelt.

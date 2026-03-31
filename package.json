@@ -1,7 +1,7 @@
 {
-  "name": "windows-computer-use-mcp",
+  "name": "argus-automation",
   "version": "0.1.0",
-  "description": "Windows Desktop Control MCP Server — port of Anthropic's Chicago MCP for Windows",
+  "description": "Argus Automation — SOTA desktop automation for AI agents. Works with Claude Code, Codex, and OpenClaw.",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

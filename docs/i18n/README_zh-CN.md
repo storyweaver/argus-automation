@@ -1,106 +1,124 @@
-# Windows Computer Use MCP
+# Argus Automation
 
 <p align="center">
   <a href="../../README.md">English</a> | <b>中文</b> | <a href="README_ja.md">日本語</a> | <a href="README_fr.md">Français</a> | <a href="README_de.md">Deutsch</a>
 </p>
 
-**唯一基于 Anthropic 官方 Chicago MCP 架构构建的 Windows 桌面自动化 MCP 服务器。**
-
-同样的 24 个工具，同样的三层安全模型，同样的 token 优化策略。只是将原生层替换为 Windows 实现。
-
-市面上其他桌面自动化 MCP 都是从零开始构建工具定义、安全模型和调度逻辑。本项目直接复用了 Anthropic **6,300+ 行**产品级代码——与 Claude Code 内置 macOS 桌面控制功能完全相同的代码——仅将原生层（截图、输入、窗口管理）替换为 Windows 等价实现。
+<p align="center">
+  <b>面向 AI Agent 的 SOTA 桌面自动化。</b><br/>
+  兼容 <b>Claude Code</b>、<b>Codex</b> 和 <b>OpenClaw</b>。
+</p>
 
 ---
 
-## 为什么这个架构与众不同
+> **Argus**（Ἄργος Πανόπτης）——希腊神话中百目巨人，永不合眼的全视守卫。我们以此命名，因为它通过截图看见你的整个桌面，并以外科手术般的精准度操控一切——正如神话中的守护者，注视着托付给他的所有事物。
 
-大多数桌面自动化 MCP 只给模型几个基础工具（截图、点击、打字），然后就听天由命了。**Chicago MCP**——Anthropic 的内部桌面控制架构——采用了截然不同的思路：它将桌面自动化视为一个**有状态、受治理的会话**，具备分层安全、token 预算管理和批量执行能力。
+市面上其他桌面自动化 MCP 都在从零搭建工具定义、安全模型和调度逻辑。Argus 直接复用了 Anthropic **6,300+ 行**产品级 Chicago MCP 代码——正是驱动 Claude Code 内置 macOS 桌面控制功能的同一套代码——仅将原生层替换为 Windows 等价实现。同样的 24 个工具，同样的三层安全模型，同样的 token 优化策略。
 
-我们将这套架构移植到了 Windows。以下是具体差异：
+## 两种根本不同的设计哲学
 
-### 架构对比
+所有其他 MCP 采用的都是**「给模型一把锤子」**的思路——提供截图、点击、打字这些原子工具，然后指望模型自己想办法。每一步都是：截图 → 看 → 判断 → 操作 → 循环。
 
+Argus 的思路截然不同：**把桌面自动化建模为一个有状态、受治理的会话**——具备分层安全、token 预算管理和批量执行能力。两者的差距是巨大的。
+
+### 对比一：工具设计——扁平原语 vs 分层架构
+
+**CursorTouch（5,000 stars）的工具：**
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│              其他 MCP 服务器                                         │
-│                                                                     │
-│   screenshot() ──→ 模型观察 ──→ click(x,y) ──→ 循环                │
-│                                                                     │
-│   没有安全机制。没有批量执行。没有 token 预算。没有状态管理。            │
-│   模型每次都必须从头视觉解析所有内容。                                 │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
+Click, Type, Scroll, Move, Shortcut, Screenshot, App, Shell...
+```
+每个工具都是独立的原子操作，彼此之间没有上下文关联。模型在每一步都必须截图 → 看 → 判断 → 操作。
 
-┌─────────────────────────────────────────────────────────────────────┐
-│              本项目（Chicago MCP 架构）                               │
-│                                                                     │
-│   ┌──── 会话层 ──────────────────────────────────────────────┐      │
-│   │  request_access → 三层权限控制（read/click/full）          │      │
-│   │  按应用授权、按键黑名单、前台应用校验                       │      │
-│   └───────────────────────────────────────────────────────────┘      │
-│   ┌──── 效率层 ──────────────────────────────────────────────┐      │
-│   │  computer_batch: N 个操作 → 1 次 API 调用                 │      │
-│   │  结构化 API: cursor_position、read_clipboard、             │      │
-│   │    open_application — 无需截图                             │      │
-│   │  targetImageSize: 二分搜索压缩至 ≤1568 token 预算          │      │
-│   └───────────────────────────────────────────────────────────┘      │
-│   ┌──── 视觉层（仅在真正需要时使用）─────────────────────────┐      │
-│   │  screenshot → 模型观察 UI → click/type/scroll              │      │
-│   │  zoom → 对小号文字进行高分辨率裁切                          │      │
-│   └───────────────────────────────────────────────────────────┘      │
-│   ┌──── 原生层（Windows）────────────────────────────────────┐      │
-│   │  node-screenshots (DXGI) │ robotjs (SendInput)            │      │
-│   │  koffi + Win32 API       │ sharp (JPEG/resize)            │      │
-│   └───────────────────────────────────────────────────────────┘      │
-└─────────────────────────────────────────────────────────────────────┘
+**Argus 的分层工具设计：**
+```
+会话层:       request_access, list_granted_applications
+视觉层:       screenshot, zoom
+精确操作层:   left_click, double_click, triple_click, right_click,
+              middle_click, left_mouse_down, left_mouse_up
+输入层:       type, key, hold_key
+效率层:       computer_batch (N 个操作 → 1 次 API 调用)
+导航层:       open_application, switch_display
+状态查询层:   cursor_position, read_clipboard, write_clipboard
+等待层:       wait
 ```
 
-### 正面对比：功能一览
+24 个顶层工具 + 16 种批量操作类型。分层设计的精髓在于：**让模型在正确的抽象层级上思考，而不是每次都从像素级重新开始。**
 
-| 能力 | **本项目** | CursorTouch<br/>Windows-MCP<br/>(5k stars) | MCPControl<br/>(306 stars) | domdomegg<br/>computer-use-mcp<br/>(176 stars) | sbroenne<br/>mcp-windows<br/>(24 stars) |
-|---|:---:|:---:|:---:|:---:|:---:|
-| **批量执行**（N 个操作合并为 1 次 API 调用） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **Token 预算优化**（二分搜索压缩至 ≤1568 tokens） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **三层应用权限**（read / click / full） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **前台应用校验**（非目标应用聚焦时阻止操作） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **危险按键拦截**（Alt+F4、Win+L、Ctrl+Alt+Del） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **结构化 API**（无需截图即可获取信息） | **支持** | 部分支持 | 部分支持 | 不支持 | 支持 |
-| **Zoom**（高分辨率裁切查看细节） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **多显示器**（按显示器名称切换） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
-| **与 Claude Code 内置工具相同的 Schema** | **是** | 否 | 否 | 接近 | 否 |
-| **复用的 Anthropic 上游代码** | **6,300+ 行** | 0 | 0 | 0 | 0 |
-| 工具数量 | 24 | 19 | 12 | 6 | 10 |
-| 开发语言 | TypeScript | Python | TypeScript | TypeScript | C# |
+### 对比二：「能用 API 就不截图」——最被低估的设计原则
 
-### 批量执行为什么重要
+这是最被低估的设计要点。其他 MCP 逼迫模型**通过视觉感知所有信息**。Argus 的原则是：如果信息能通过结构化 API 获取，就绝不浪费视觉 token。截图留给真正需要视觉理解的场景。
 
-没有 `computer_batch` 时，一个"点击-输入-回车"序列需要 **5 次 API 往返**（每次 3-8 秒）。有了它：
+| 任务 | 其他 MCP | Argus | 省了什么 |
+|---|---|---|---|
+| **知道有哪些应用** | 截图 → 模型识别任务栏 | `listInstalledApps()` → 结构化数据 | 1 次截图 + 1 次视觉推理 |
+| **打开应用程序** | 截图 → 找到图标 → 点击 | `open_application("Excel")` → 直接 API 调用 | 2-3 次截图 + 多次点击 |
+| **知道当前聚焦的应用** | 截图 → 模型识别标题栏 | `getFrontmostApp()` → 返回 bundleId | 1 次截图 + 推理 |
+| **知道光标位置** | 截图 → 模型猜 | `cursor_position` → 精确坐标 | 1 次截图 |
+| **读取剪贴板** | Ctrl+V 粘贴到记事本 → 截图 → 识别 | `read_clipboard` → 返回文本 | 多次操作 + 2 次截图 |
+| **切换显示器** | 截图 → 发现是错的 → 反复尝试 | `switch_display("Dell U2720Q")` | 反复试错的循环 |
+| **阅读小号文字** | 模型对着压缩后的截图眯眼辨认 | `zoom` → 高分辨率局部裁切 | 误点击的代价 |
 
-```javascript
-// 5 次往返 → 2 次。延迟和 token 消耗减少 60%。
-computer_batch([
+每次避免截图可节省约 **1,500 个视觉 token** 和 **3-5 秒**延迟。
+
+### 对比三：`computer_batch`——唯一的批量执行引擎
+
+这是**所有竞品都不具备**的能力。差距有多大？看这个：
+
+**其他 MCP 执行「点击输入框 → 输入文字 → 按回车」：**
+```
+Call 1: screenshot        → 模型收到图片 → 推理 → 下一步
+Call 2: click(100, 200)   → 模型收到 OK   → 推理 → 下一步
+Call 3: type("hello")     → 模型收到 OK   → 推理 → 下一步
+Call 4: key("Return")     → 模型收到 OK   → 推理 → 下一步
+Call 5: screenshot        → 模型确认结果
+
+= 5 次 API 往返 × 3-8 秒 = 15-40 秒
+```
+
+**Argus 做同样的事：**
+```
+Call 1: screenshot
+Call 2: computer_batch([
   { action: "left_click", coordinate: [100, 200] },
-  { action: "type", text: "hello world" },
+  { action: "type", text: "hello" },
   { action: "key", text: "Return" },
   { action: "screenshot" }
 ])
+
+= 2 次 API 往返 = 6-16 秒
 ```
 
-目前没有任何其他 Windows MCP 服务器支持此功能。
+**延迟和 token 消耗减少 60%。** 而且批量执行中的每个操作仍然会进行前台应用安全检查——不是盲目执行。
 
-### "能用 API 就不截图"为什么重要
+### 对比四：安全模型——产品级 vs 形同虚设
 
-其他 MCP 强迫模型**对所有信息都进行截图和视觉解析**。Chicago MCP 的理念是：如果信息能通过 API 获取，就不浪费视觉 token。
+| 安全维度 | CursorTouch（5k stars） | MCPControl（306 stars） | **Argus** |
+|---|:---:|:---:|:---:|
+| 应用级权限 | 无 | 无 | **三层（read/click/full）** |
+| 前台应用校验 | 无（可以点击任意窗口） | 无 | **每次操作前检查** |
+| 危险按键拦截 | 无 | 无 | **Alt+F4、Win+L、Ctrl+Alt+Del** |
+| 点击目标校验 | 无 | 无 | **9×9 像素陈旧性检测** |
+| 剪贴板隔离 | 无 | 无 | **对 click 层级应用进行暂存/恢复** |
+| 应用黑名单 | 无 | 无 | **浏览器→只读、终端→仅点击** |
 
-| 任务 | 其他 MCP | 本项目 |
-|---|---|---|
-| 当前聚焦的是哪个应用？ | 截图 → 模型识别标题栏 | `getFrontmostApp()` → 结构化数据 |
-| 光标在哪里？ | 截图 → 模型猜测 | `cursor_position` → 精确的 `{x, y}` |
-| 读取剪贴板 | Ctrl+V 粘贴到记事本 → 截图 → 识别 | `read_clipboard` → 文本字符串 |
-| 打开应用程序 | 截图 → 找到图标 → 点击 | `open_application("Excel")` → API 调用 |
-| 切换显示器 | 截图 → 发现是错误的显示器 → 重试 | `switch_display("Dell U2720Q")` |
+CursorTouch 的 README 原话就是 *"POTENTIALLY DANGEROUS"*。而 Argus 的安全模型**为商业产品而设计**——Anthropic 的 Cowork 和桌面应用都采用同样的架构。
 
-每次避免截图可节省约 **1,500 个视觉 token** 和 **3-5 秒**延迟。
+### 正面交锋总览
+
+| 能力 | **Argus** | CursorTouch<br/>（5k stars） | MCPControl<br/>（306 stars） | domdomegg<br/>（176 stars） | sbroenne<br/>（24 stars） |
+|---|:---:|:---:|:---:|:---:|:---:|
+| **批量执行** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **Token 预算优化** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **三层应用权限** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **前台应用校验** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **危险按键拦截** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **结构化 API**（无需截图获取信息） | **支持** | 部分支持 | 部分支持 | 不支持 | 支持 |
+| **Zoom**（高分辨率细节裁切） | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **多显示器切换** | **支持** | 不支持 | 不支持 | 不支持 | 不支持 |
+| **与 Claude Code 内置工具 Schema 一致** | **是** | 否 | 否 | 接近 | 否 |
+| **复用的 Anthropic 上游代码** | **6,300+ 行** | 0 | 0 | 0 | 0 |
+| 工具数量 | 24 | 19 | 12 | 6 | 10 |
+| 开发语言 | TypeScript | Python | TypeScript | TypeScript | C# |
 
 ---
 
@@ -115,8 +133,8 @@ computer_batch([
 ### 安装
 
 ```bash
-git clone https://github.com/storyweaver/windows-computer-use-mcp.git
-cd windows-computer-use-mcp
+git clone https://github.com/storyweaver/argus-automation.git
+cd argus-automation
 npm install
 npm run build
 ```
@@ -128,15 +146,15 @@ npm run build
 ```json
 {
   "mcpServers": {
-    "windows-computer-use": {
+    "argus": {
       "command": "node",
-      "args": ["C:/path/to/windows-computer-use-mcp/dist/index.js"]
+      "args": ["C:/path/to/argus-automation/dist/index.js"]
     }
   }
 }
 ```
 
-重启 Claude Code，你将看到 24 个以 `mcp__windows-computer-use__` 为前缀的新工具。
+重启 Claude Code，你将看到 24 个以 `mcp__argus__` 为前缀的新工具。
 
 ### 测试
 
@@ -147,39 +165,41 @@ npm run test:unit # 仅运行单元测试
 
 ---
 
-## 项目结构
+## 架构
 
 ```
-src/
-├── upstream/              # 来自 @ant/computer-use-mcp 的 6,300+ 行代码（仅修改 1 行）
-│   ├── toolCalls.ts       # 3,649 行：安全校验 + 工具调度
-│   ├── tools.ts           # 24 个工具的 Schema 定义
-│   ├── mcpServer.ts       # MCP Server 工厂 + 会话绑定
-│   ├── types.ts           # 完整的类型系统
-│   ├── executor.ts        # ComputerExecutor 接口（重建）
-│   ├── keyBlocklist.ts    # 危险按键拦截（内置 win32 分支）
-│   ├── pixelCompare.ts    # 9×9 像素变化检测
-│   ├── imageResize.ts     # Token 预算算法
-│   └── ...                # deniedApps、sentinelApps、subGates
-├── native/                # Windows 原生层（约 400 行）
-│   ├── screen.ts          # node-screenshots + sharp（DXGI 屏幕捕获）
-│   ├── input.ts           # robotjs（SendInput 鼠标/键盘）
-│   ├── window.ts          # koffi + Win32 API（窗口管理）
-│   └── clipboard.ts       # PowerShell Get/Set-Clipboard
-├── executor-windows.ts    # ComputerExecutor 实现
-├── host-adapter.ts        # HostAdapter 组装
-├── logger.ts              # 基于文件的日志系统
-└── index.ts               # stdio MCP Server 入口点
+┌─────────────────────────────────────────────────────────────────────┐
+│  上游层 — 来自 Anthropic Chicago MCP 的 6,300+ 行代码                │
+│  （仅修改 1 行）                                                     │
+│                                                                     │
+│  toolCalls.ts（3,649 行）— 安全校验 + 工具调度                        │
+│  mcpServer.ts — Server 工厂 + 会话绑定                               │
+│  tools.ts — 24 个工具的 Schema 定义                                  │
+│  types.ts — 完整的类型系统                                           │
+│  keyBlocklist.ts — 危险按键拦截（win32 分支）                         │
+│  pixelCompare.ts — 9×9 陈旧性检测                                   │
+│  imageResize.ts — Token 预算算法                                     │
+└──────────────────────────┬──────────────────────────────────────────┘
+                           │ ComputerExecutor 接口
+                           ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Windows 原生层 — 约 400 行新代码                                    │
+│                                                                     │
+│  screen.ts — node-screenshots + sharp（DXGI 屏幕捕获、JPEG、缩放）  │
+│  input.ts  — robotjs（SendInput 鼠标/键盘）                         │
+│  window.ts — koffi + Win32 API（窗口管理）                           │
+│  clipboard.ts — PowerShell Get/Set-Clipboard                        │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 技术栈
+### 技术栈
 
-每个库都是 Chicago MCP 在 macOS 上所用组件的 Windows 等价物：
+每个库都是 macOS 版本所用组件的 Windows 等价物：
 
-| 模块 | macOS（Chicago MCP） | Windows（本项目） | 职责 |
+| 模块 | macOS（Chicago MCP） | Windows（Argus） | 职责 |
 |---|---|---|---|
-| 屏幕截图 | SCContentFilter | **node-screenshots** (DXGI) | 屏幕捕获 |
-| 输入控制 | enigo (Rust) | **robotjs** (SendInput) | 鼠标和键盘 |
+| 屏幕截图 | SCContentFilter | **node-screenshots**（DXGI） | 屏幕捕获 |
+| 输入控制 | enigo（Rust） | **robotjs**（SendInput） | 鼠标和键盘 |
 | 窗口管理 | Swift + NSWorkspace | **koffi** + Win32 API | 窗口控制 |
 | 图像处理 | Sharp | **Sharp** | JPEG 压缩 + 缩放 |
 | MCP 框架 | @modelcontextprotocol/sdk | **@modelcontextprotocol/sdk** | MCP 协议 |
@@ -200,7 +220,7 @@ src/
 
 ## 安全模型
 
-三层按应用分配的权限体系——目前唯一具备此能力的 MCP 服务器：
+三层按应用分配的权限体系——**目前唯一具备此级别访问控制的 MCP 服务器**：
 
 | 层级 | 截图 | 点击 | 打字/粘贴 |
 |---|:---:|:---:|:---:|
@@ -208,12 +228,13 @@ src/
 | **click**（终端、IDE） | 允许 | 仅左键 | 禁止 |
 | **full**（其他应用） | 允许 | 允许 | 允许 |
 
-此外还有：危险按键拦截、前台应用校验、会话级授权。
+此外还有：危险按键拦截、每次操作前的前台应用校验、会话级授权。
 
 ## 日志
 
+所有工具调用记录在：
 ```
-%LOCALAPPDATA%\windows-computer-use-mcp\logs\mcp-YYYY-MM-DD.log
+%LOCALAPPDATA%\argus-automation\logs\mcp-YYYY-MM-DD.log
 ```
 
 ## 已知限制
@@ -229,4 +250,4 @@ MIT
 
 ## 致谢
 
-基于 Anthropic 的 `@ant/computer-use-mcp`（Chicago MCP）构建，提取自 Claude Code v2.1.88。`src/upstream/` 中的上游代码归属 Anthropic；Windows 原生层为原创实现。
+基于 Anthropic 的 Chicago MCP 架构构建，提取自 Claude Code v2.1.88。`src/upstream/` 中的上游代码归属 Anthropic；Windows 原生层及集成代码为原创实现。

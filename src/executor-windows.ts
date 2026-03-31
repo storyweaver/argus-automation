@@ -56,7 +56,7 @@ import {
  * is never the frontmost app (unlike macOS where the terminal window IS
  * visible). The upstream frontmost gate exempts this ID.
  */
-const WIN_HOST_BUNDLE_ID = "windows-computer-use-mcp";
+const WIN_HOST_BUNDLE_ID = "argus-automation";
 
 /**
  * Windows Explorer — equivalent of macOS Finder. Always allowed as

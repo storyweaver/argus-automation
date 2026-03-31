@@ -1,22 +1,25 @@
-# Windows Computer Use MCP
+# Argus Automation
 
 <p align="center">
   <b>English</b> | <a href="docs/i18n/README_zh-CN.md">中文</a> | <a href="docs/i18n/README_ja.md">日本語</a> | <a href="docs/i18n/README_fr.md">Français</a> | <a href="docs/i18n/README_de.md">Deutsch</a>
 </p>
 
-**The only Windows desktop automation MCP server built on Anthropic's official Chicago MCP architecture.**
-
-Same 24 tools. Same 3-tier security model. Same token optimization. Just the native layer replaced for Windows.
-
-Every other desktop-automation MCP builds its tool schemas, security model, and dispatch logic from scratch. This project directly reuses **6,300+ lines** of Anthropic's production code — the same code that powers Claude Code's built-in macOS desktop control — and replaces only the native layer (screenshot, input, window management) with Windows equivalents.
+<p align="center">
+  <b>SOTA desktop automation for AI agents.</b><br/>
+  Works with <b>Claude Code</b>, <b>Codex</b>, and <b>OpenClaw</b>.
+</p>
 
 ---
 
+> **Argus** (Ἄργος Πανόπτης) — the hundred-eyed giant of Greek mythology, the all-seeing guardian who never sleeps. We named this project Argus because it sees your entire desktop through screenshots and controls it with surgical precision — just as the mythological guardian watched over everything entrusted to him.
+
+Every other desktop-automation MCP builds its tool schemas, security model, and dispatch logic from scratch. Argus directly reuses **6,300+ lines** of Anthropic's production Chicago MCP code — the same code that powers Claude Code's built-in macOS desktop control — and replaces only the native layer with Windows equivalents. Same 24 tools, same 3-tier security model, same token optimization.
+
 ## Two Fundamentally Different Design Philosophies
 
-Every other MCP takes the **"hand the model a hammer"** approach — provide screenshot + click + type as atomic tools, then hope the model figures out the rest on its own. Every step is: screenshot → look → decide → act → repeat.
+Every other MCP takes the **"hand the model a hammer"** approach — provide screenshot + click + type as atomic tools, then hope the model figures out the rest. Every step is: screenshot → look → decide → act → repeat.
 
-Chicago MCP takes a fundamentally different approach: **model desktop automation as a stateful, governed session** — with layered security, token budgeting, and batch execution. The gap is enormous.
+Argus takes a fundamentally different approach: **model desktop automation as a stateful, governed session** — with layered security, token budgeting, and batch execution. The gap is enormous.
 
 ### Comparison 1: Tool Design — Flat Primitives vs Layered Architecture
 
@@ -26,7 +29,7 @@ Click, Type, Scroll, Move, Shortcut, Screenshot, App, Shell...
 ```
 Each tool is an independent atomic operation with no context relationship. The model must screenshot → look → decide → act at every single step.
 
-**Chicago MCP's layered tool design:**
+**Argus's layered tool design:**
 ```
 Session Layer:     request_access, list_granted_applications
 Vision Layer:      screenshot, zoom
@@ -43,17 +46,17 @@ Wait Layer:        wait
 
 ### Comparison 2: "Use APIs When You Can" — The Most Underrated Design Principle
 
-This is the most underrated design point in Chicago MCP. Other MCPs force the model to **perceive everything through vision**. Chicago MCP's principle: if information can be retrieved via a structured API, never waste vision tokens on it. Screenshots are reserved for when you genuinely need visual understanding (reading UI layout, confirming action results).
+This is the most underrated design point. Other MCPs force the model to **perceive everything through vision**. Argus's principle: if information can be retrieved via a structured API, never waste vision tokens on it. Screenshots are reserved for when you genuinely need visual understanding.
 
-| Task | Other MCPs | Chicago MCP (This Project) | What You Save |
+| Task | Other MCPs | Argus | What You Save |
 |---|---|---|---|
 | **Know which apps exist** | Screenshot → model reads taskbar | `listInstalledApps()` → structured data | 1 screenshot + 1 vision inference |
-| **Open an application** | Screenshot → find icon → click | `open_application("Excel")` → direct API call | 2-3 screenshots + multiple clicks |
+| **Open an application** | Screenshot → find icon → click | `open_application("Excel")` → direct API | 2-3 screenshots + multiple clicks |
 | **Know which app is focused** | Screenshot → model reads title bar | `getFrontmostApp()` → returns bundleId | 1 screenshot + inference |
 | **Know cursor position** | Screenshot → model guesses | `cursor_position` → exact coordinates | 1 screenshot |
-| **Read clipboard** | Screenshot → Ctrl+V into Notepad → screenshot → read | `read_clipboard` → returns text directly | Multiple actions + 2 screenshots |
-| **Switch monitor** | Screenshot → wrong one → model guesses | `switch_display("Dell U2720Q")` | Trial-and-error loop |
-| **Read small text** | Model squints at compressed full-screen screenshot | `zoom` → high-res regional crop | Misclick costs |
+| **Read clipboard** | Ctrl+V into Notepad → screenshot → read | `read_clipboard` → returns text | Multiple actions + 2 screenshots |
+| **Switch monitor** | Screenshot → wrong one → trial and error | `switch_display("Dell U2720Q")` | Trial-and-error loop |
+| **Read small text** | Model squints at compressed screenshot | `zoom` → high-res regional crop | Misclick costs |
 
 Each avoided screenshot saves **~1,500 vision tokens** and **3-5 seconds** of latency.
 
@@ -63,16 +66,16 @@ This is a capability **no competitor has**. Here's how big the gap is:
 
 **Other MCPs performing "click field → type text → press Enter":**
 ```
-Call 1: screenshot        → model receives image → inference → output next step
-Call 2: click(100, 200)   → model receives OK   → inference → output next step
-Call 3: type("hello")     → model receives OK   → inference → output next step
-Call 4: key("Return")     → model receives OK   → inference → output next step
+Call 1: screenshot        → model receives image → inference → next step
+Call 2: click(100, 200)   → model receives OK   → inference → next step
+Call 3: type("hello")     → model receives OK   → inference → next step
+Call 4: key("Return")     → model receives OK   → inference → next step
 Call 5: screenshot        → model confirms result
 
-= 5 API round-trips × 3-8 seconds each = 15-40 seconds
+= 5 API round-trips × 3-8 seconds = 15-40 seconds
 ```
 
-**Chicago MCP doing the same thing:**
+**Argus doing the same thing:**
 ```
 Call 1: screenshot
 Call 2: computer_batch([
@@ -85,11 +88,11 @@ Call 2: computer_batch([
 = 2 API round-trips = 6-16 seconds
 ```
 
-**60% less latency and tokens.** And every action inside the batch still gets a frontmost-app security check — it's not blind execution.
+**60% less latency and tokens.** And every action inside the batch still gets a frontmost-app security check — not blind execution.
 
 ### Comparison 4: Security Model — Production-Grade vs None
 
-| Security Dimension | CursorTouch (5k stars) | MCPControl (306 stars) | **Chicago MCP (This Project)** |
+| Security Dimension | CursorTouch (5k stars) | MCPControl (306 stars) | **Argus** |
 |---|:---:|:---:|:---:|
 | App-level permissions | No | No | **3-tier (read/click/full)** |
 | Frontmost app gate | No (can click any window) | No | **Checked before every action** |
@@ -98,11 +101,11 @@ Call 2: computer_batch([
 | Clipboard isolation | No | No | **Stash/restore for click-tier apps** |
 | App deny-list | No | No | **Browsers→read-only, Terminals→click-only** |
 
-CursorTouch's README literally says *"POTENTIALLY DANGEROUS"*. Chicago MCP's security model is **designed for commercial products** — Anthropic's Cowork and desktop app both use it.
+CursorTouch's README literally says *"POTENTIALLY DANGEROUS"*. Argus's security model is **designed for commercial products** — Anthropic's Cowork and desktop app both use the same architecture.
 
 ### Head-to-Head Summary
 
-| Capability | **This Project** | CursorTouch<br/>(5k stars) | MCPControl<br/>(306 stars) | domdomegg<br/>(176 stars) | sbroenne<br/>(24 stars) |
+| Capability | **Argus** | CursorTouch<br/>(5k stars) | MCPControl<br/>(306 stars) | domdomegg<br/>(176 stars) | sbroenne<br/>(24 stars) |
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Batch Execution** | **Yes** | No | No | No | No |
 | **Token Budget Optimization** | **Yes** | No | No | No | No |
@@ -130,8 +133,8 @@ CursorTouch's README literally says *"POTENTIALLY DANGEROUS"*. Chicago MCP's sec
 ### Install
 
 ```bash
-git clone https://github.com/storyweaver/windows-computer-use-mcp.git
-cd windows-computer-use-mcp
+git clone https://github.com/storyweaver/argus-automation.git
+cd argus-automation
 npm install
 npm run build
 ```
@@ -143,15 +146,15 @@ Add to your project's `.mcp.json`:
 ```json
 {
   "mcpServers": {
-    "windows-computer-use": {
+    "argus": {
       "command": "node",
-      "args": ["C:/path/to/windows-computer-use-mcp/dist/index.js"]
+      "args": ["C:/path/to/argus-automation/dist/index.js"]
     }
   }
 }
 ```
 
-Restart Claude Code. You'll see 24 new tools prefixed with `mcp__windows-computer-use__`.
+Restart Claude Code. You'll see 24 new tools prefixed with `mcp__argus__`.
 
 ### Test
 
@@ -166,7 +169,7 @@ npm run test:unit # Unit tests only
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Upstream Layer — 6,300+ lines from @ant/computer-use-mcp           │
+│  Upstream Layer — 6,300+ lines from Anthropic's Chicago MCP         │
 │  (only 1 line changed)                                              │
 │                                                                     │
 │  toolCalls.ts (3,649 lines) — security gates + tool dispatch        │
@@ -191,9 +194,9 @@ npm run test:unit # Unit tests only
 
 ### Tech Stack
 
-Each library is the Windows equivalent of what Chicago MCP uses on macOS:
+Each library is the Windows equivalent of what the macOS version uses:
 
-| Module | macOS (Chicago MCP) | Windows (This Project) | Role |
+| Module | macOS (Chicago MCP) | Windows (Argus) | Role |
 |---|---|---|---|
 | Screenshot | SCContentFilter | **node-screenshots** (DXGI) | Screen capture |
 | Input | enigo (Rust) | **robotjs** (SendInput) | Mouse & keyboard |
@@ -231,7 +234,7 @@ Plus: dangerous key blocking, frontmost app gate on every action, session-scoped
 
 All tool calls logged to:
 ```
-%LOCALAPPDATA%\windows-computer-use-mcp\logs\mcp-YYYY-MM-DD.log
+%LOCALAPPDATA%\argus-automation\logs\mcp-YYYY-MM-DD.log
 ```
 
 ## Known Limitations
@@ -247,4 +250,4 @@ MIT
 
 ## Acknowledgements
 
-Built on Anthropic's `@ant/computer-use-mcp` (Chicago MCP), extracted from Claude Code v2.1.88. Upstream code in `src/upstream/` is Anthropic's work; the Windows native layer and integration code is original.
+Built on Anthropic's Chicago MCP architecture, extracted from Claude Code v2.1.88. Upstream code in `src/upstream/` is Anthropic's work; the Windows native layer and integration code is original.

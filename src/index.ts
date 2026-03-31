@@ -103,7 +103,7 @@ function createAutoApproveSessionContext(): ComputerUseSessionContext {
 
 async function main(): Promise<void> {
   const adapter = createWindowsHostAdapter({
-    serverName: "windows-computer-use",
+    serverName: "argus",
   });
 
   const coordinateMode: CoordinateMode = "pixels";

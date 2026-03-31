@@ -13,6 +13,7 @@ import type {
 import { ALL_SUB_GATES_ON } from "./upstream/subGates.js";
 import { createWindowsExecutor } from "./executor-windows.js";
 import { cropRawPatch } from "./native/screen.js";
+import { createFileLogger } from "./logger.js";
 
 /**
  * Default sub-gates for Windows. Most gates are ON; a few are adapted:
@@ -39,17 +40,7 @@ export function createWindowsHostAdapter(
   opts: WindowsHostAdapterOpts = {},
 ): ComputerUseHostAdapter {
   const serverName = opts.serverName ?? "windows-computer-use";
-  const logger: Logger = opts.logger ?? {
-    info: (...args: unknown[]) =>
-      console.error(`[${serverName}] INFO`, ...args),
-    error: (...args: unknown[]) =>
-      console.error(`[${serverName}] ERROR`, ...args),
-    warn: (...args: unknown[]) =>
-      console.error(`[${serverName}] WARN`, ...args),
-    debug: (...args: unknown[]) =>
-      console.error(`[${serverName}] DEBUG`, ...args),
-    silly: () => {},
-  };
+  const logger: Logger = opts.logger ?? createFileLogger(serverName);
 
   const subGates: CuSubGates = {
     ...WIN_DEFAULT_SUB_GATES,

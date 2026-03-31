@@ -30,6 +30,7 @@ import type {
 } from "./upstream/types.js";
 import { DEFAULT_GRANT_FLAGS } from "./upstream/types.js";
 import { createWindowsHostAdapter } from "./host-adapter.js";
+import { getLogDir } from "./logger.js";
 
 // ── Simple session context (auto-approve mode for CLI usage) ────────────────
 
@@ -117,7 +118,7 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  adapter.logger.info("Windows Computer Use MCP Server started (stdio)");
+  adapter.logger.info(`Windows Computer Use MCP Server started (stdio). Logs → ${getLogDir()}`);
 
   // Keep alive until the transport closes
   process.on("SIGINT", async () => {

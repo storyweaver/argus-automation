@@ -21,8 +21,9 @@ import { cropRawPatch } from "./native/screen.js";
  */
 const WIN_DEFAULT_SUB_GATES: CuSubGates = {
   ...ALL_SUB_GATES_ON,
-  autoTargetDisplay: false,
-  clipboardGuard: false,
+  pixelValidation: false,   // cropRawPatch can't be sync on Windows (sharp is async)
+  autoTargetDisplay: false,  // No atomic Swift resolver on Windows
+  clipboardGuard: false,     // No Electron clipboard module to stash
 };
 
 export interface WindowsHostAdapterOpts {

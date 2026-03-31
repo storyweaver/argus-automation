@@ -88,6 +88,7 @@ const ShellExecuteW = shell32.func("ShellExecuteW", "void *", [
 const PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
 const SW_HIDE = 0;
 const SW_SHOW = 5;
+const SW_MINIMIZE = 6;
 const SW_RESTORE = 9;
 const SW_SHOWNOACTIVATE = 4;
 const GA_ROOTOWNER = 3;
@@ -303,8 +304,8 @@ export function listRunningApps(): Array<{
 }
 
 /**
- * Hide windows belonging to specified processes (by exe name).
- * Uses EnumWindows to find all windows for each process.
+ * Minimize windows belonging to specified processes (by exe name).
+ * Uses SW_MINIMIZE instead of SW_HIDE so windows remain in the taskbar.
  */
 export function hideWindows(exeNames: string[]): void {
   const targets = new Set(exeNames.map((n) => n.toUpperCase()));
@@ -317,7 +318,7 @@ export function hideWindows(exeNames: string[]): void {
       if (!path) return 1;
       const exe = exeNameFromPath(path).toUpperCase();
       if (targets.has(exe)) {
-        ShowWindow(hwnd, SW_HIDE);
+        ShowWindow(hwnd, SW_MINIMIZE);
       }
       return 1; // continue enumeration
     },

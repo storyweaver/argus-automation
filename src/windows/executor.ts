@@ -48,6 +48,7 @@ import {
   readClipboard as nativeReadClipboard,
   writeClipboard as nativeWriteClipboard,
 } from "./clipboard.js";
+import { execFile } from "node:child_process";
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -155,6 +156,75 @@ async function typeViaClipboard(text: string): Promise<void> {
         // best-effort restore
       }
     }
+  }
+}
+
+// ── Registry-based installed-app scan ───────────────────────────────────────
+
+/** Cached result of the registry scan. */
+let _regApps: InstalledApp[] | null = null;
+let _regAppsTs = 0;
+const REG_CACHE_TTL = 5 * 60_000; // 5 minutes
+
+/**
+ * Scan the Windows Uninstall registry keys for installed applications.
+ * Queries HKLM (64-bit + WOW6432Node) and HKCU.  Only entries with a
+ * recognisable .exe in DisplayIcon are returned.  Results are cached.
+ */
+async function getRegistryInstalledApps(): Promise<InstalledApp[]> {
+  const now = Date.now();
+  if (_regApps && now - _regAppsTs < REG_CACHE_TTL) return _regApps;
+
+  const script =
+    "$ErrorActionPreference='SilentlyContinue'\n" +
+    "$r=@(\n" +
+    "  'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',\n" +
+    "  'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*',\n" +
+    "  'HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*'\n" +
+    ")\n" +
+    "$a=$r|%{Get-ItemProperty $_}|?{\n" +
+    "  $_.DisplayName -and !$_.SystemComponent -and\n" +
+    "  $_.DisplayName -notmatch '^(KB\\d|Update |Security Update|Hotfix)'\n" +
+    "}|%{\n" +
+    "  $x=''\n" +
+    "  if($_.DisplayIcon){$x=($_.DisplayIcon -split ',')[0].Trim('\"').Trim()}\n" +
+    "  if($x -match '\\.exe$' -and $x -notmatch '(msiexec|rundll32)'){[pscustomobject]@{n=$_.DisplayName.Trim();x=$x}}\n" +
+    "}|?{$_}|Sort-Object n -Unique\n" +
+    "if($a){$a|ConvertTo-Json -Compress}else{'[]'}";
+
+  try {
+    const stdout = await new Promise<string>((resolve, reject) => {
+      execFile(
+        "powershell.exe",
+        ["-NoProfile", "-NonInteractive", "-Command", script],
+        { timeout: 15_000 },
+        (err, out) => (err ? reject(err) : resolve(out)),
+      );
+    });
+
+    const raw = JSON.parse(stdout.trim() || "[]");
+    const items: Array<{ n: string; x: string }> = Array.isArray(raw)
+      ? raw
+      : [raw];
+
+    const seen = new Set<string>();
+    const apps: InstalledApp[] = [];
+    for (const { n, x } of items) {
+      if (!n || !x) continue;
+      const exeName = x.match(/([^\\\/]+)$/)?.[1];
+      if (!exeName) continue;
+      const id = exeName.toUpperCase();
+      if (seen.has(id)) continue;
+      seen.add(id);
+      apps.push({ bundleId: id, displayName: n, path: x });
+    }
+
+    _regApps = apps;
+    _regAppsTs = now;
+    return apps;
+  } catch {
+    // Registry scan is best-effort; fall through to running-apps only.
+    return [];
   }
 }
 
@@ -346,7 +416,9 @@ export function createWindowsExecutor(opts: {
     },
 
     async type(text: string, opts: { viaClipboard: boolean }): Promise<void> {
-      if (opts.viaClipboard) {
+      // Force clipboard paste for non-ASCII text (CJK etc.) — robotjs
+      // typeString triggers the system IME and produces garbled output.
+      if (opts.viaClipboard || /[^\x00-\x7F]/.test(text)) {
         await typeViaClipboard(text);
         return;
       }
@@ -473,23 +545,32 @@ export function createWindowsExecutor(opts: {
     },
 
     async listInstalledApps(): Promise<InstalledApp[]> {
-      // Use running apps as the installed apps list for now.
-      // A full registry scan is possible but slow and not needed for MVP.
-      const running = listVisibleWindows();
-      const seen = new Set<string>();
-      const result: InstalledApp[] = [];
+      // Merge registry-scanned apps (comprehensive) with running apps
+      // (catches portable apps and provides fresh window titles).
+      const [registryApps, visibleWindows] = await Promise.all([
+        getRegistryInstalledApps(),
+        Promise.resolve(listVisibleWindows()),
+      ]);
 
-      for (const w of running) {
-        const id = w.exeName.toUpperCase();
-        if (seen.has(id)) continue;
-        seen.add(id);
-        result.push({
-          bundleId: id,
-          displayName: w.title || w.exeName.replace(/\.exe$/i, ""),
-          path: w.exePath,
-        });
+      const byId = new Map<string, InstalledApp>();
+
+      for (const app of registryApps) {
+        byId.set(app.bundleId, app);
       }
-      return result;
+
+      // Running apps fill gaps (portable / unregistered apps)
+      for (const w of visibleWindows) {
+        const id = w.exeName.toUpperCase();
+        if (!byId.has(id)) {
+          byId.set(id, {
+            bundleId: id,
+            displayName: w.title || w.exeName.replace(/\.exe$/i, ""),
+            path: w.exePath,
+          });
+        }
+      }
+
+      return Array.from(byId.values());
     },
 
     async getAppIcon(_path: string): Promise<string | undefined> {

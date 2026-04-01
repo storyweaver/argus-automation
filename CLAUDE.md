@@ -117,10 +117,10 @@ No special permissions needed. Logs at `%LOCALAPPDATA%\argus-automation\logs\`.
 ## Known platform issues
 
 ### Windows
-- **CJK text input**: robotjs `typeString` triggers IME → garbled. Use clipboard paste.
+- **CJK text input**: ~~robotjs `typeString` triggers IME → garbled.~~ Fixed — `type()` now auto-detects non-ASCII and forces clipboard paste.
 - **robotjs modifier quirk**: `keyTap(key, undefined)` throws — pass `[]`.
 - **FINDER_BUNDLE_ID**: upstream hardcodes `com.apple.finder` as always-allowed. Windows `EXPLORER.EXE` won't match — add Explorer to allowlist.
-- **listInstalledApps**: Only returns running apps. Launch app first, then `request_access`.
+- **listInstalledApps**: ~~Only returns running apps.~~ Fixed — scans Uninstall registry keys (HKLM + HKCU, 64/32-bit) and merges with running apps. Cached for 5 minutes.
 
 ### macOS
 - **Terminal exemption**: The terminal running Claude Code is auto-detected and excluded from screenshots/hiding via `getTerminalBundleId()`.

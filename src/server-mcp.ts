@@ -51,35 +51,31 @@ async function createLockCallbacks(): Promise<{
   formatLockHeldMessage?: (holder: string) => string;
   release: () => Promise<void>;
 }> {
-  if (process.platform === "darwin") {
-    const {
-      checkComputerUseLock,
-      tryAcquireComputerUseLock,
-      releaseComputerUseLock,
-    } = await import("./mac/computerUseLock.js");
+  // The lock implementation is platform-agnostic (Node.js O_EXCL / flag:'wx').
+  const {
+    checkComputerUseLock,
+    tryAcquireComputerUseLock,
+    releaseComputerUseLock,
+  } = await import("./computerUseLock.js");
 
-    return {
-      checkCuLock: async () => {
-        const result = await checkComputerUseLock();
-        if (result.kind === "free") return { holder: undefined, isSelf: false };
-        if (result.kind === "held_by_self") return { holder: result.kind, isSelf: true };
-        return { holder: result.by, isSelf: false };
-      },
-      acquireCuLock: async () => {
-        const result = await tryAcquireComputerUseLock();
-        if (result.kind === "blocked") {
-          throw new Error(`CU lock held by ${result.by}`);
-        }
-      },
-      formatLockHeldMessage: (holder: string) =>
-        `Another session (${holder}) is currently using the computer. ` +
-        `Wait for it to finish, or stop it before starting a new one.`,
-      release: async () => { await releaseComputerUseLock(); },
-    };
-  }
-
-  // Windows: no lock for now (single-user typical)
-  return { release: async () => {} };
+  return {
+    checkCuLock: async () => {
+      const result = await checkComputerUseLock();
+      if (result.kind === "free") return { holder: undefined, isSelf: false };
+      if (result.kind === "held_by_self") return { holder: result.kind, isSelf: true };
+      return { holder: result.by, isSelf: false };
+    },
+    acquireCuLock: async () => {
+      const result = await tryAcquireComputerUseLock();
+      if (result.kind === "blocked") {
+        throw new Error(`CU lock held by ${result.by}`);
+      }
+    },
+    formatLockHeldMessage: (holder: string) =>
+      `Another session (${holder}) is currently using the computer. ` +
+      `Wait for it to finish, or stop it before starting a new one.`,
+    release: async () => { await releaseComputerUseLock(); },
+  };
 }
 
 // ── Session context (auto-approve) ────────────────────────────────────────

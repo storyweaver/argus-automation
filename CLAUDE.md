@@ -62,8 +62,8 @@ Custom implementation using cross-platform and Windows-specific libraries. Writt
 ### CU Lock (cross-process mutex)
 
 Prevents two Claude sessions from using the computer simultaneously.
-- **macOS**: `mac/computerUseLock.ts` — O_EXCL file lock at `~/.claude/computer-use.lock` (original Claude Code implementation)
-- **Windows**: Not yet wired (TODO)
+- **Shared**: `src/computerUseLock.ts` — O_EXCL file lock at `~/.claude/computer-use.lock` (platform-agnostic, works on macOS/Windows/Linux via Node.js `flag:'wx'` → `CreateFileW(CREATE_NEW)` on Windows)
+- `mac/computerUseLock.ts` re-exports from the shared module for backwards compatibility
 
 When another session holds the lock, upstream returns: "Another Claude session is currently using the computer."
 

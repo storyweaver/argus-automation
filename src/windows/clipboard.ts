@@ -11,6 +11,13 @@ import { spawn } from "node:child_process";
 const POWERSHELL = "powershell.exe";
 const PS_ARGS = ["-NoProfile", "-NonInteractive", "-Command"];
 
+// Force UTF-8 for stdin/stdout so Node (UTF-8) and PowerShell agree on encoding.
+// Without this, zh-CN Windows defaults to CP936 (GBK) and CJK text gets mangled
+// in both directions — and symmetrically, so the round-trip check silently passes.
+const UTF8_PREFIX =
+  "[Console]::InputEncoding=[System.Text.Encoding]::UTF8;" +
+  "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;";
+
 /**
  * Run a PowerShell command, optionally piping stdin. Returns stdout.
  */
@@ -57,7 +64,7 @@ function runPowerShell(
  * Read text from the Windows clipboard.
  */
 export async function readClipboard(): Promise<string> {
-  const stdout = await runPowerShell("Get-Clipboard");
+  const stdout = await runPowerShell(UTF8_PREFIX + "Get-Clipboard");
   // PowerShell appends a trailing newline; strip it
   return stdout.replace(/\r?\n$/, "");
 }
@@ -67,5 +74,5 @@ export async function readClipboard(): Promise<string> {
  */
 export async function writeClipboard(text: string): Promise<void> {
   // Use stdin pipe to avoid escaping issues with special characters
-  await runPowerShell("$input | Set-Clipboard", text);
+  await runPowerShell(UTF8_PREFIX + "$input | Set-Clipboard", text);
 }
